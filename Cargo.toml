@@ -9,6 +9,15 @@ edition = "2018"
 [dependencies]
 syn = { version = "1.0.72", features = [ "full", "parsing" ]}
 quote = { version = "1.0.9"}
+lazy_static = "^1.4.0"
+
+[dev-dependencies]
+trybuild = { version = "1.0", features = ["diff"] }
+statsd = "^0.14.1"
+
+[[test]]
+name = "tests"
+path = "tests/progress.rs"
 
 [lib]
 proc_macro = true
