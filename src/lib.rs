@@ -1,18 +1,18 @@
-use proc_macro::{TokenStream, TokenTree};
+use proc_macro::TokenStream;
 use syn::{parse_macro_input, parse_quote, Error, Item, ItemFn};
 use quote::{quote, ToTokens};
 
 #[proc_macro_attribute]
 pub fn timeit(args: TokenStream, input: TokenStream) -> TokenStream {
     let ts_args = parse_macro_input!(args as syn::AttributeArgs);
+    let mut ts_args_iter = ts_args.iter();
     let modpath : syn::LitStr;
-    match ts_args.first().unwrap() {
-        syn::NestedMeta::Lit(syn::Lit::Str(s)) => {
+    match ts_args_iter.next() {
+        Some(syn::NestedMeta::Lit(syn::Lit::Str(s))) => {
             modpath = s.clone();
         },
         _ => return Error::new_spanned(ts_args.first(), "timeit attribute requires origin module path").to_compile_error().into(),
     };
-
     let ast = parse_macro_input!(input as Item);
     match ast {
         Item::Fn(f)  => {
@@ -26,43 +26,28 @@ pub fn timeit(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn init(input: TokenStream) -> TokenStream {
     let _ = input;
-    let mut arg = input.into_iter();
-    if arg.clone().count() != 1 {
-        panic!();
-    }
-    let name;
-    match arg.next().unwrap() {
-        TokenTree::Literal(lit) => {
-            name = lit.to_string();
-        },
-        t => return Error::new(t.span().into(), "must be string literal").to_compile_error().into(),
-    };
     let out = quote! {
         // Load the crate
-        use lazy_static::lazy_static;
         use statsd::Client;
+        use lazy_static::lazy_static;
         // IP:port of your statsd daemon.
         lazy_static! {
-            [pub] static mut statd_client: Result<Client,statsd::client::StatsdError> = Client::new("127.0.0.1:8125", #name);
+            pub static ref STATSD_CLIENT:Client = {
+                Client::new("127.0.0.1:8000", "test").unwrap()
+            };
         }
     };
-    dbg!(out.to_token_stream().into())
+    out.to_token_stream().into()
 }
 
 fn time(modpath : syn::LitStr, f : &mut ItemFn) -> TokenStream {
-    let fname;
-    {
-        fname = &f.sig.ident;
-    }
-    let modpath_s = modpath.value();
-    f.block.stmts.insert(0, parse_quote!{
-        use std::time::Instant;
-        let statsd_client = #modpath_s::statsd_client.unwrap();
-        let _starttime = Instant::now();
+    let fname = f.sig.ident.clone().to_string();
+    let _modpath_s = modpath.value();
+    f.block.stmts.insert(0, parse_quote! {
+        let _starttime = std::time::Instant::now();
     });
-    f.block.stmts.push(parse_quote!{
-        let _difftime = _starttime.elapsed().as_secs_f64();
-        statsd_client.timer(#fname, _difftime);
+    f.block.stmts.push(parse_quote! {
+        STATSD_CLIENT.timer(#fname, _starttime.elapsed().as_secs_f64());
     });
     f.to_token_stream().into()
 }
